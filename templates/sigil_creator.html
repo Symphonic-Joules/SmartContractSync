@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Grain Sigil - Autonomy Network</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-shield-alt me-2"></i>
+                Grain Sigil Network
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/access-control">
+                    <i class="fas fa-lock me-1"></i>Access Control
+                </a>
+                <a class="nav-link" href="/wallet-view">
+                    <i class="fas fa-wallet me-1"></i>Wallet View
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <h2 class="mb-4">
+                    <i class="fas fa-fingerprint me-2"></i>
+                    Create New Grain Sigil
+                </h2>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-8">
+                <form id="sigil-form">
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Basic Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <label for="wallet-address" class="form-label">Linked Wallet Address</label>
+                                <input type="text" class="form-control" id="wallet-address" required
+                                       placeholder="0x..." pattern="^0x[a-fA-F0-9]{40}$">
+                                <div class="form-text">Ethereum wallet address (must start with 0x)</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="identity-proof" class="form-label">Identity Proof Hash</label>
+                                <input type="text" class="form-control" id="identity-proof" required
+                                       placeholder="SHA-256 hash of identity proof">
+                                <div class="form-text">Cryptographic hash of your identity verification</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Ethical Declarations</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="ethical-declarations">
+                                <div class="input-group mb-2">
+                                    <input type="text" class="form-control" placeholder="Enter ethical principle">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="addEthicalDeclaration(this)">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="addEthicalDeclarationField()">
+                                <i class="fas fa-plus me-1"></i>Add Another
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Capabilities</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="capabilities">
+                                <div class="input-group mb-2">
+                                    <input type="text" class="form-control" placeholder="Enter capability">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="addCapability(this)">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="addCapabilityField()">
+                                <i class="fas fa-plus me-1"></i>Add Another
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">User Attributes</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="user-attributes">
+                                <div class="row mb-2">
+                                    <div class="col-5">
+                                        <input type="text" class="form-control" placeholder="Attribute name">
+                                    </div>
+                                    <div class="col-5">
+                                        <input type="text" class="form-control" placeholder="Attribute value">
+                                    </div>
+                                    <div class="col-2">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="addUserAttribute(this)">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="addUserAttributeField()">
+                                <i class="fas fa-plus me-1"></i>Add Another
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Proofs</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="proofs">
+                                <div class="row mb-2">
+                                    <div class="col-5">
+                                        <input type="text" class="form-control" placeholder="Proof type">
+                                    </div>
+                                    <div class="col-5">
+                                        <input type="text" class="form-control" placeholder="Proof hash">
+                                    </div>
+                                    <div class="col-2">
+                                        <button class="btn btn-outline-secondary" type="button" onclick="addProof(this)">
+                                            <i class="fas fa-plus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="addProofField()">
+                                <i class="fas fa-plus me-1"></i>Add Another
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            <i class="fas fa-fingerprint me-2"></i>
+                            Create Sigil
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-info-circle me-2"></i>
+                            About Grain Sigils
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Grain Sigils are decentralized identity credentials that enable:</p>
+                        <ul class="list-unstyled">
+                            <li><i class="fas fa-check text-success me-2"></i>Self-sovereign identity</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Verifiable credentials</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Ethical declarations</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Access control</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Blockchain integration</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="card mt-4" id="result-card" style="display: none;">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-check-circle me-2"></i>
+                            Sigil Created
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="sigil-result"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        function addEthicalDeclarationField() {
+            const container = document.getElementById('ethical-declarations');
+            const div = document.createElement('div');
+            div.className = 'input-group mb-2';
+            div.innerHTML = `
+                <input type="text" class="form-control" placeholder="Enter ethical principle">
+                <button class="btn btn-outline-secondary" type="button" onclick="addEthicalDeclaration(this)">
+                    <i class="fas fa-plus"></i>
+                </button>
+            `;
+            container.appendChild(div);
+        }
+
+        function addEthicalDeclaration(button) {
+            const input = button.parentElement.querySelector('input');
+            if (input.value.trim()) {
+                button.innerHTML = '<i class="fas fa-check text-success"></i>';
+                button.disabled = true;
+                input.readOnly = true;
+            }
+        }
+
+        function addCapabilityField() {
+            const container = document.getElementById('capabilities');
+            const div = document.createElement('div');
+            div.className = 'input-group mb-2';
+            div.innerHTML = `
+                <input type="text" class="form-control" placeholder="Enter capability">
+                <button class="btn btn-outline-secondary" type="button" onclick="addCapability(this)">
+                    <i class="fas fa-plus"></i>
+                </button>
+            `;
+            container.appendChild(div);
+        }
+
+        function addCapability(button) {
+            const input = button.parentElement.querySelector('input');
+            if (input.value.trim()) {
+                button.innerHTML = '<i class="fas fa-check text-success"></i>';
+                button.disabled = true;
+                input.readOnly = true;
+            }
+        }
+
+        function addUserAttributeField() {
+            const container = document.getElementById('user-attributes');
+            const div = document.createElement('div');
+            div.className = 'row mb-2';
+            div.innerHTML = `
+                <div class="col-5">
+                    <input type="text" class="form-control" placeholder="Attribute name">
+                </div>
+                <div class="col-5">
+                    <input type="text" class="form-control" placeholder="Attribute value">
+                </div>
+                <div class="col-2">
+                    <button class="btn btn-outline-secondary" type="button" onclick="addUserAttribute(this)">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function addUserAttribute(button) {
+            const row = button.closest('.row');
+            const inputs = row.querySelectorAll('input');
+            if (inputs[0].value.trim() && inputs[1].value.trim()) {
+                button.innerHTML = '<i class="fas fa-check text-success"></i>';
+                button.disabled = true;
+                inputs.forEach(input => input.readOnly = true);
+            }
+        }
+
+        function addProofField() {
+            const container = document.getElementById('proofs');
+            const div = document.createElement('div');
+            div.className = 'row mb-2';
+            div.innerHTML = `
+                <div class="col-5">
+                    <input type="text" class="form-control" placeholder="Proof type">
+                </div>
+                <div class="col-5">
+                    <input type="text" class="form-control" placeholder="Proof hash">
+                </div>
+                <div class="col-2">
+                    <button class="btn btn-outline-secondary" type="button" onclick="addProof(this)">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function addProof(button) {
+            const row = button.closest('.row');
+            const inputs = row.querySelectorAll('input');
+            if (inputs[0].value.trim() && inputs[1].value.trim()) {
+                button.innerHTML = '<i class="fas fa-check text-success"></i>';
+                button.disabled = true;
+                inputs.forEach(input => input.readOnly = true);
+            }
+        }
+
+        // Handle form submission
+        document.getElementById('sigil-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            createSigil();
+        });
+    </script>
+</body>
+</html>

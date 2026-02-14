@@ -1,0 +1,97 @@
+import os
+import base64
+import logging
+from typing import Optional
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+
+logger = logging.getLogger(__name__)
+
+
+class SecretError(Exception):
+    pass
+
+
+def derive_key(password: str, salt: bytes = b'grain_sigil_salt') -> bytes:
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+    return key
+
+
+def encrypt_secret(secret: str, key_password: str) -> str:
+    key = derive_key(key_password)
+    f = Fernet(key)
+    encrypted = f.encrypt(secret.encode())
+    return base64.urlsafe_b64encode(encrypted).decode()
+
+
+def encode_for_env(secret: str, key: str = "Grain") -> str:
+    return encrypt_secret(secret, key)
+
+
+def decrypt_secret(encrypted_secret: str, key_password: str) -> str:
+    try:
+        key = derive_key(key_password)
+        f = Fernet(key)
+        encrypted_bytes = base64.urlsafe_b64decode(encrypted_secret.encode())
+        decrypted = f.decrypt(encrypted_bytes)
+        return decrypted.decode()
+    except Exception as e:
+        logger.error(f"Failed to decrypt secret: {e}")
+        raise ValueError("Invalid encryption key or corrupted secret")
+
+
+def load_secret(env_var_name: str, key: Optional[str] = None) -> str:
+    secret_value = os.getenv(env_var_name)
+
+    if not secret_value:
+        logger.error(f"Secret '{env_var_name}' not found in environment variables")
+        raise SecretError(f"Required secret '{env_var_name}' not configured")
+
+    if not key:
+        return secret_value
+
+    try:
+        decrypted = decrypt_secret(secret_value, key)
+        logger.info(f"Successfully decrypted secret '{env_var_name}'")
+        return decrypted
+    except Exception as e:
+        logger.warning(f"Failed to decrypt '{env_var_name}', returning raw value: {e}")
+        return secret_value
+
+
+def check_secrets_status() -> dict:
+    required_secrets = [
+        'SEPOLIA_RPC_URL',
+        'SERVICE_PRIVATE_KEY',
+        'BASIC_TRANSPARENCY_CONTRACT_ADDRESS',
+        'CARE_TOKEN_CONTRACT_ADDRESS',
+        'TESTIMONY_NFT_CONTRACT_ADDRESS',
+        'BASIC_TRANSPARENCY_ABI_JSON',
+        'CARE_TOKEN_ABI_JSON',
+        'TESTIMONY_NFT_ABI_JSON'
+    ]
+
+    status = {
+        'configured': [],
+        'missing': [],
+        'total_required': len(required_secrets)
+    }
+
+    for secret_name in required_secrets:
+        if os.getenv(secret_name):
+            status['configured'].append(secret_name)
+        else:
+            status['missing'].append(secret_name)
+
+    status['configured_count'] = len(status['configured'])
+    status['missing_count'] = len(status['missing'])
+    status['is_ready'] = status['missing_count'] == 0
+
+    return status

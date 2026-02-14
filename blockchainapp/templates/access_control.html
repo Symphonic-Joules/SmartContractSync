@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Control - Autonomy Network</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/custom.css') }}" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-shield-alt me-2"></i>
+                Grain Sigil Network
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/">
+                    <i class="fas fa-home me-1"></i>Dashboard
+                </a>
+                <a class="nav-link" href="/sigil-creator">
+                    <i class="fas fa-plus-circle me-1"></i>Create Sigil
+                </a>
+                <a class="nav-link" href="/wallet-view">
+                    <i class="fas fa-wallet me-1"></i>Wallet View
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <h2 class="mb-4">
+                    <i class="fas fa-lock me-2"></i>
+                    Access Control Management
+                </h2>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <ul class="nav nav-tabs" id="accessTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="create-lock-tab" data-bs-toggle="tab" data-bs-target="#create-lock" type="button" role="tab">
+                            <i class="fas fa-plus me-2"></i>Create Digital Lock
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="test-access-tab" data-bs-toggle="tab" data-bs-target="#test-access" type="button" role="tab">
+                            <i class="fas fa-key me-2"></i>Test Access
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="manage-locks-tab" data-bs-toggle="tab" data-bs-target="#manage-locks" type="button" role="tab">
+                            <i class="fas fa-list me-2"></i>Manage Locks
+                        </button>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="tab-content mt-4" id="accessTabsContent">
+            <!-- Create Digital Lock Tab -->
+            <div class="tab-pane fade show active" id="create-lock" role="tabpanel">
+                <div class="row">
+                    <div class="col-lg-8">
+                        <form id="lock-form">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Lock Configuration</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="lock-type" class="form-label">Lock Type</label>
+                                        <select class="form-select" id="lock-type" required>
+                                            <option value="access_control">Access Control</option>
+                                            <option value="reparations_portal">Reparations Portal</option>
+                                            <option value="testimony_credit">Testimony Credit</option>
+                                            <option value="creative_work">Creative Work</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="lock-controls" class="form-label">Controls</label>
+                                        <input type="text" class="form-control" id="lock-controls" required
+                                               placeholder="What does this lock control?">
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="access-message" class="form-label">Access Message</label>
+                                        <textarea class="form-control" id="access-message" rows="3" required
+                                                  placeholder="Message to display when access is granted"></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Access Policy</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label class="form-label">Required Ethics</label>
+                                        <div id="required-ethics">
+                                            <div class="input-group mb-2">
+                                                <input type="text" class="form-control" placeholder="Enter required ethic">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="addRequiredEthic(this)">
+                                                    <i class="fas fa-plus"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="addRequiredEthicField()">
+                                            <i class="fas fa-plus me-1"></i>Add Another
+                                        </button>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label">Required Capabilities</label>
+                                        <div id="required-capabilities">
+                                            <div class="input-group mb-2">
+                                                <input type="text" class="form-control" placeholder="Enter required capability">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="addRequiredCapability(this)">
+                                                    <i class="fas fa-plus"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="addRequiredCapabilityField()">
+                                            <i class="fas fa-plus me-1"></i>Add Another
+                                        </button>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="proof-type" class="form-label">Required Proof Type</label>
+                                        <input type="text" class="form-control" id="proof-type" 
+                                               placeholder="e.g., identity_verification, trauma_informed_training">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="mb-0">On-Chain Actions</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="on-chain-actions">
+                                        <div class="row mb-2">
+                                            <div class="col-4">
+                                                <select class="form-control">
+                                                    <option value="">Select action</option>
+                                                    <option value="allocate_reparations">Allocate Reparations</option>
+                                                    <option value="mint_testimony_credit">Mint Testimony Credit</option>
+                                                    <option value="mint_creative_work">Mint Creative Work</option>
+                                                    <option value="update_reputation">Update Reputation</option>
+                                                </select>
+                                            </div>
+                                            <div class="col-6">
+                                                <input type="text" class="form-control" placeholder="Parameters (comma-separated)">
+                                            </div>
+                                            <div class="col-2">
+                                                <button class="btn btn-outline-secondary" type="button" onclick="addOnChainAction(this)">
+                                                    <i class="fas fa-plus"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-secondary" onclick="addOnChainActionField()">
+                                        <i class="fas fa-plus me-1"></i>Add Another
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="text-center">
+                                <button type="submit" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-lock me-2"></i>
+                                    Create Lock
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="col-lg-4">
+                        <div class="card" id="lock-result-card" style="display: none;">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-check-circle me-2"></i>
+                                    Lock Created
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="lock-result"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Access Tab -->
+            <div class="tab-pane fade" id="test-access" role="tabpanel">
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Test Access</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="access-test-form">
+                                    <div class="mb-3">
+                                        <label for="sigil-fingerprint" class="form-label">Sigil Fingerprint</label>
+                                        <select class="form-select" id="sigil-fingerprint" required>
+                                            <option value="">Select a sigil...</option>
+                                        </select>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="lock-id" class="form-label">Lock ID</label>
+                                        <select class="form-select" id="lock-id" required>
+                                            <option value="">Select a lock...</option>
+                                        </select>
+                                    </div>
+
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-key me-2"></i>
+                                        Test Access
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <div class="card" id="access-result-card" style="display: none;">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="fas fa-results me-2"></i>
+                                    Access Result
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="access-result"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manage Locks Tab -->
+            <div class="tab-pane fade" id="manage-locks" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            Existing Locks
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="locks-list">
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-lock fa-2x mb-3"></i>
+                                <p>No locks created yet. Create your first lock using the "Create Digital Lock" tab.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        // Load existing sigils and locks when tab is activated
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSigilsForSelection();
+            loadLocksForSelection();
+            loadLocksForManagement();
+        });
+
+        // Tab change handlers
+        document.getElementById('test-access-tab').addEventListener('shown.bs.tab', function() {
+            loadSigilsForSelection();
+            loadLocksForSelection();
+        });
+
+        document.getElementById('manage-locks-tab').addEventListener('shown.bs.tab', function() {
+            loadLocksForManagement();
+        });
+
+        // Form submission handlers
+        document.getElementById('lock-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            createLock();
+        });
+
+        document.getElementById('access-test-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            testAccess();
+        });
+    </script>
+</body>
+</html>

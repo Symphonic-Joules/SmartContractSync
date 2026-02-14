@@ -1,0 +1,648 @@
+# main.py - Real-World Smart Contract Integration
+
+import hashlib
+import json
+from datetime import datetime, timezone
+import random # Still used for fallback/simulated IDs if real TX fails
+from typing import List, Dict, Any, Optional
+
+import httpx # For making async HTTP requests in the proxy
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+
+# For Web3.py integration
+import os
+from dotenv import load_dotenv
+from web3 import Web3
+from web3.middleware import geth_poa_middleware # Needed for Sepolia (PoA chain)
+
+# Load environment variables from .env file
+load_dotenv()
+
+# --- Web3.py Configuration for Real Testnet Interaction ---
+SEPOLIA_RPC_URL = os.getenv("SEPOLIA_RPC_URL", "http://localhost:8545") # Fallback to local node
+SERVICE_PRIVATE_KEY = os.getenv("SERVICE_PRIVATE_KEY") # THIS MUST BE SECURELY MANAGED IN PRODUCTION!
+BASIC_TRANSPARENCY_CONTRACT_ADDRESS = os.getenv("BASIC_TRANSPARENCY_CONTRACT_ADDRESS")
+BASIC_TRANSPARENCY_ABI = json.loads(os.getenv("BASIC_TRANSPARENCY_ABI_JSON", "[]"))
+CARE_TOKEN_CONTRACT_ADDRESS = os.getenv("CARE_TOKEN_CONTRACT_ADDRESS")
+CARE_TOKEN_ABI = json.loads(os.getenv("CARE_TOKEN_ABI_JSON", "[]"))
+TESTIMONY_NFT_CONTRACT_ADDRESS = os.getenv("TESTIMONY_NFT_CONTRACT_ADDRESS")
+TESTIMONY_NFT_ABI = json.loads(os.getenv("TESTIMONY_NFT_ABI_JSON", "[]"))
+
+# Initialize Web3 instance
+w3 = Web3(Web3.HTTPProvider(SEPOLIA_RPC_URL))
+
+# Inject PoA middleware if connecting to a Proof-of-Authority network like Sepolia
+w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+
+if not w3.is_connected():
+    print("ERROR: Not connected to Sepolia Testnet! Check RPC URL and internet connection.")
+    # In a real application, you might want to exit or fallback to a simulated mode
+else:
+    print(f"Connected to Sepolia Testnet. Current block: {w3.eth.block_number}")
+
+# Initialize Service Account for sending transactions
+if SERVICE_PRIVATE_KEY:
+    SERVICE_ACCOUNT = w3.eth.account.from_key(SERVICE_PRIVATE_KEY)
+    print(f"Service account address: {SERVICE_ACCOUNT.address}")
+else:
+    print("WARNING: SERVICE_PRIVATE_KEY not found. On-chain actions will fail.")
+    SERVICE_ACCOUNT = None
+
+# Initialize Contract Instances (if addresses and ABIs are available)
+basic_transparency_contract = None
+if BASIC_TRANSPARENCY_CONTRACT_ADDRESS and BASIC_TRANSPARENCY_ABI:
+    basic_transparency_contract = w3.eth.contract(address=Web3.to_checksum_address(BASIC_TRANSPARENCY_CONTRACT_ADDRESS), abi=BASIC_TRANSPARENCY_ABI)
+    print(f"Loaded BasicTransparency contract at: {BASIC_TRANSPARENCY_CONTRACT_ADDRESS}")
+
+care_token_contract = None
+if CARE_TOKEN_CONTRACT_ADDRESS and CARE_TOKEN_ABI:
+    care_token_contract = w3.eth.contract(address=Web3.to_checksum_address(CARE_TOKEN_CONTRACT_ADDRESS), abi=CARE_TOKEN_ABI)
+    print(f"Loaded CareToken contract at: {CARE_TOKEN_CONTRACT_ADDRESS}")
+
+testimony_nft_contract = None
+if TESTIMONY_NFT_CONTRACT_ADDRESS and TESTIMONY_NFT_ABI:
+    testimony_nft_contract = w3.eth.contract(address=Web3.to_checksum_address(TESTIMONY_NFT_CONTRACT_ADDRESS), abi=TESTIMONY_NFT_ABI)
+    print(f"Loaded TestimonyCreditNFT contract at: {TESTIMONY_NFT_CONTRACT_ADDRESS}")
+
+
+# --- Pydantic Models for Data Validation ---
+
+class GrainSigilMetadata(BaseModel):
+    version: str = "1.2"
+    issuer: str = "Survivor-Led Autonomy Network (Simulated)"
+    issued_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    identity_proof_hash: str
+    ethical_profile: List[str]
+    capabilities: List[str]
+    user_attributes: Dict[str, Any]
+    proofs: Dict[str, str]
+    linked_wallet_address: str
+    sigil_fingerprint: Optional[str] = None
+    verifiable_credentials: List[Dict] = []
+
+class GrainSigilInput(BaseModel):
+    identity_proof_hash: str
+    ethical_declarations: List[str]
+    capabilities: List[str]
+    user_attributes: Dict[str, Any]
+    proofs: Dict[str, str]
+    linked_wallet_address: str
+    sigil_fingerprint: Optional[str] = None
+    verifiable_credentials: List[Dict] = []
+
+class AccessPolicy(BaseModel):
+    required_ethics: List[str] = []
+    required_capabilities: List[str] = []
+    attribute_conditions: Dict[str, Any] = {} # Re-added attribute conditions
+    requires_proof_type: Optional[str] = None # Re-added requires_proof_type
+    required_credentials: List[Dict[str, str]] = Field(default_factory=list) # Re-added required_credentials
+
+class OnChainAction(BaseModel):
+    function: str
+    params: List[Any]
+
+class DigitalLockConfig(BaseModel):
+    type: str
+    controls: str
+    access_policy: AccessPolicy
+    access_message: str
+    on_chain_actions: List[OnChainAction] = []
+
+class AccessResponse(BaseModel):
+    access_granted: bool
+    message: str
+    transaction_receipts: List[Dict[str, Any]] = []
+    current_contract_state: Optional[Dict[str, Any]] = None # This will now be actual contract states
+    sigil_metadata: Optional[GrainSigilMetadata] = None
+    lock_details: Optional[DigitalLockConfig] = None
+
+class NftAsset(BaseModel):
+    type: str
+    id: str
+    token_uri: Optional[str] = None
+    mint_number: Optional[int] = None
+    impact_tag: Optional[str] = None
+
+class WalletView(BaseModel):
+    address: str
+    CareTokens: float
+    NFTs: List[NftAsset]
+
+
+# --- Blockchain Interaction Layer (Replaces internal simulator logic) ---
+# These functions now perform actual Web3.py calls
+
+class RealBlockchainInteractions:
+    def __init__(self, w3_instance: Web3, service_account: Any):
+        self.w3 = w3_instance
+        self.service_account = service_account
+
+    def _send_transaction(self, contract_function, params: list, gas_limit: int) -> Dict:
+        if not self.service_account:
+            return {"status": "error", "reason": "Service account not configured (private key missing).", "action": contract_function.__name__}
+
+        try:
+            nonce = self.w3.eth.get_transaction_count(self.service_account.address)
+            gas_price = self.w3.eth.gas_price
+
+            tx_dict = contract_function(*params).build_transaction({
+                'from': self.service_account.address,
+                'nonce': nonce,
+                'gas': gas_limit,
+                'gasPrice': gas_price
+            })
+
+            signed_tx = self.w3.eth.account.sign_transaction(tx_dict, private_key=SERVICE_PRIVATE_KEY)
+            tx_hash = self.w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            
+            print(f"  [Web3] Tx sent: {tx_hash.hex()} for {contract_function.__name__}")
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash)
+            print(f"  [Web3] Tx mined: {receipt.transactionHash.hex()} status: {receipt.status}")
+
+            if receipt.status == 1:
+                return {
+                    "transaction_hash": receipt.transactionHash.hex(),
+                    "status": "success",
+                    "gas_used": receipt.gasUsed,
+                    "action": contract_function.__name__,
+                    "contract_address": receipt.to.hex() if receipt.to else '0x0'
+                }
+            else:
+                return {
+                    "transaction_hash": receipt.transactionHash.hex(),
+                    "status": "failed",
+                    "reason": "Transaction failed on-chain",
+                    "gas_used": receipt.gasUsed,
+                    "action": contract_function.__name__
+                }
+        except Exception as e:
+            print(f"  [Web3 ERROR] Failed to execute {contract_function.__name__}: {e}")
+            return {"status": "error", "action": contract_function.__name__, "error": str(e)}
+
+    # --- ERC-20 Transfer (Allocate Reparations) ---
+    def allocate_reparations_real(self, sigil_address: str, amount: float) -> Dict:
+        if not care_token_contract:
+            return {"status": "error", "action": "allocate_reparations", "error": "CareToken contract not loaded."}
+        
+        # Convert human-readable amount to token's smallest unit (e.g., 18 decimals)
+        amount_in_wei = self.w3.to_wei(amount, 'ether') # Assuming 18 decimals for CARE
+
+        return self._send_transaction(
+            care_token_contract.functions.transfer,
+            [Web3.to_checksum_address(sigil_address), amount_in_wei],
+            100000 # Gas limit estimate
+        )
+
+    # --- ERC-721 Mint (Mint Testimony Credit) ---
+    def mint_testimony_credit_real(self, sigil_address: str, impact_tag: str) -> Dict:
+        if not testimony_nft_contract:
+            return {"status": "error", "action": "mint_testimony_credit", "error": "Testimony NFT contract not loaded."}
+        
+        # In a real scenario, tokenURI would be generated or retrieved from IPFS
+        # For demo, use a consistent IPFS hash for TestimonyCredit metadata
+        testimony_nft_metadata_uri = "ipfs://Qmb5xX5V5g7t3k9Y7z0d5xX5V5g7t3k9Y7z0d5xX5V5g7t3k9Y" # REPLACE with your actual Testimony Credit IPFS URI
+        
+        # Assuming your contract has a mint function like `mint(address to, string tokenURI)`
+        return self._send_transaction(
+            testimony_nft_contract.functions.mint,
+            [Web3.to_checksum_address(sigil_address), testimony_nft_metadata_uri],
+            300000 # Gas limit estimate for NFT mint
+        )
+
+    # --- ERC-721 Mint (Mint Creative Work) ---
+    def mint_creative_work_real(self, sigil_address: str, work_id: str) -> Dict:
+        if not testimony_nft_contract: # Re-using testimony_nft for simplicity, or have a separate CreativeWork NFT contract
+            return {"status": "error", "action": "mint_creative_work", "error": "Creative Work NFT contract not loaded."}
+        
+        # Use the specific IPFS token URI for the Healing Zine
+        # This hash should point to the metadata JSON of your actual zine.
+        creative_zine_token_uri = "ipfs://bafyreigbj4vldlhpsgw24ns3d24e2t62dxpftvt3e7n6a76fbdlmgz2agu/metadata.json" # As per last prompt
+
+        return self._send_transaction(
+            testimony_nft_contract.functions.mint, # Assuming this contract handles both
+            [Web3.to_checksum_address(sigil_address), creative_zine_token_uri],
+            300000 # Gas limit estimate
+        )
+
+    # --- BasicTransparency Contract Interaction ---
+    def update_reputation_on_chain(self, user_address: str, score_change: int, action: str) -> Dict:
+        if not basic_transparency_contract:
+            return {"status": "error", "action": "update_reputation_on_chain", "error": "BasicTransparency contract not loaded."}
+        
+        return self._send_transaction(
+            basic_transparency_contract.functions.updateReputation,
+            [Web3.to_checksum_address(user_address), score_change, action],
+            200000 # Gas limit estimate
+        )
+
+    def submit_probe_on_chain(self, submitter_address: str, target: str, question: str) -> Dict:
+        if not basic_transparency_contract:
+            return {"status": "error", "action": "submit_probe_on_chain", "error": "BasicTransparency contract not loaded."}
+        
+        return self._send_transaction(
+            basic_transparency_contract.functions.submitProbe,
+            [target, question],
+            300000 # Gas limit estimate
+        )
+
+    # --- Real-time Wallet Asset Retrieval (using Web3.py and potentially Alchemy NFT API) ---
+    async def get_wallet_assets_real(self, wallet_address: str) -> Dict:
+        checksum_address = Web3.to_checksum_address(wallet_address)
+        
+        # 1. Get real CareToken balance (ERC-20)
+        care_tokens_balance = 0.0
+        if care_token_contract:
+            try:
+                raw_balance = care_token_contract.functions.balanceOf(checksum_address).call()
+                decimals = care_token_contract.functions.decimals().call() # Get decimals from contract
+                care_tokens_balance = raw_balance / (10**decimals)
+            except Exception as e:
+                print(f"  [Web3 ERROR] Could not fetch real CareToken balance for {wallet_address}: {e}")
+        
+        # 2. Get real NFTs owned by address (using Alchemy NFT API is most robust)
+        # For simplicity, if Alchemy NFT API is not set up, we'll return an empty list or
+        # you can add more complex web3.py logic to iterate through tokenOfOwnerByIndex if your contract supports it.
+        # Alchemy NFT API is the recommended way to get all NFTs for an owner.
+        owned_nfts: List[NftAsset] = []
+        # Placeholder for Alchemy NFT API integration (requires alchemy-sdk-py or direct HTTP calls)
+        # Example using a conceptual Alchemy NFT API client (you'd need to install/configure alchemy-sdk-py)
+        # from alchemy.nft import Alchemy, Network # This is a separate library, 'alchemy-sdk-py'
+        # alchemy_api_key = os.getenv("ALCHEMY_API_KEY_FOR_NFT_API") # Need a separate key for NFT API if using
+        # if alchemy_api_key and TESTIMONY_NFT_CONTRACT_ADDRESS:
+        #     alchemy = Alchemy(api_key=alchemy_api_key, network=Network.ETH_SEPOLIA)
+        #     try:
+        #         nfts_response = await alchemy.nft.get_nfts_for_owner(checksum_address, contract_addresses=[Web3.to_checksum_address(TESTIMONY_NFT_CONTRACT_ADDRESS)])
+        #         for nft_data in nfts_response.owned_nfts:
+        #             # Map Alchemy's NFT object to your NftAsset model
+        #             owned_nfts.append(NftAsset(
+        #                 type= "CreativeWork" if nft_data.contract.address.lower() == Web3.to_checksum_address(TESTIMONY_NFT_CONTRACT_ADDRESS).lower() else "Unknown NFT", # Adjust logic based on your deployed NFT types
+        #                 id=nft_data.token_id,
+        #                 token_uri=nft_data.token_uri,
+        #                 # You might need to parse attributes to get impact_tag or mint_number if not in token_id
+        #             ))
+        #     except Exception as e:
+        #         print(f"  [Alchemy NFT API ERROR] Failed to fetch NFTs: {e}")
+        
+        # For now, let's use a SIMULATED NFT list if real API isn't set up, or return empty if no real NFTs are found.
+        # This allows the care wallet to still function conceptually if real NFT fetching is too complex immediately.
+        # You would remove this section once full Alchemy NFT API integration is done.
+        
+        # For this setup, we'll continue using the simulated NFTs added by mint_creative_work_real for demonstration,
+        # as querying ALL NFTs for an address is complex via raw web3.py without an indexer.
+        # If you deployed TestimonyCreditNFT and CreativeWorkNFT as separate contracts, you'd query each.
+        
+        # Placeholder: If you want to display the real NFTs you just minted, you'd need logic here
+        # to fetch `token_uri` for that `tokenId` from your deployed `TestimonyCreditNFT` contract
+        # (using `tokenURI` method) and then construct the `NftAsset` object.
+        
+        # For now, let's keep the `simulated_wallets` NFTs as the source for display in the frontend
+        # to ensure the frontend still has data to render for the zine.
+        # In a fully real system, this would all be fetched from the chain or an indexer.
+        
+        # This will be replaced by actual logic querying the NFT contract for owned tokens.
+        # For now, if a real transfer/mint happened, `simulated_wallets` holds enough info for frontend.
+        simulated_owned_nfts = self.simulated_wallets.get(wallet_address, {}).get("NFTs", [])
+
+
+        return {"address": wallet_address, "CareTokens": care_tokens_balance, "NFTs": simulated_owned_nfts}
+
+
+# --- Digital Locks Configuration (using Pydantic model for type checking) ---
+# NOTE: We are defining functions in RealBlockchainInteractions and mapping them here.
+DIGITAL_LOCKS: Dict[str, DigitalLockConfig] = {
+    "knowledge_platform_A": DigitalLockConfig(
+        type="Knowledge Platform", controls="Learning portals, archives", 
+        access_policy=AccessPolicy(required_capabilities=["access_knowledge_base", "bypass_paywall"]),
+        access_message="Access granted: Welcome to the archive of reclaimed knowledge.", 
+        on_chain_actions=[]
+    ),
+    "survivor_dao_reparations": DigitalLockConfig(
+        type="Survivor-Led DAO", controls="Claiming reparative assets", 
+        access_policy=AccessPolicy(required_ethics=["survivor-led design"], 
+                                   required_capabilities=["access_reparations"],
+                                   requires_proof_type="identity_proof"), # Example proof requirement
+        access_message="Access granted: Reparative assets allocated to your Care Wallet.",
+        on_chain_actions=[OnChainAction(function="allocate_reparations_real", params=["linked_wallet_address", 100.0])]
+    ),
+    "archive_testimony_credit": DigitalLockConfig(
+        type="Archive of Truth", controls="Minting a Testimony Credit NFT", 
+        access_policy=AccessPolicy(required_ethics=["ritual truth encoding"],
+                                   required_capabilities=["mint_testimony_credit"],
+                                   required_credentials=[{"type": "SurvivorWitnessCredential", "proof_format": "hash"}]), # Example credential requirement
+        access_message="Access granted: A unique Testimony Credit has been minted to your Care Wallet.",
+        on_chain_actions=[OnChainAction(function="mint_testimony_credit_real", params=["linked_wallet_address", "ImpactedVoice"])]
+    ),
+    "creative_marketplace_minting": DigitalLockConfig(
+        type="Creative Marketplace", controls="Minting new zines/ritual kits", 
+        access_policy=AccessPolicy(required_capabilities=["mint_creative_work"],
+                                   attribute_conditions={"creator_status": True}), # Example attribute requirement
+        access_message="Access granted: Your creative work has been minted as an NFT.",
+        on_chain_actions=[OnChainAction(function="mint_creative_work_real", params=["linked_wallet_address", "My First Zine"])]
+    ),
+    "basic_transparency_probe": DigitalLockConfig( # New lock for BasicTransparency contract
+        type="Transparency Probe System", controls="Submit a real-time transparency probe",
+        access_policy=AccessPolicy(required_capabilities=["submit_probe"],
+                                   user_attributes={"user_role": "impacted_voice"}),
+        access_message="Access granted: Your transparency probe has been submitted on-chain.",
+        on_chain_actions=[OnChainAction(function="submit_probe_on_chain", params=["linked_wallet_address", "AI Transparency Protocol", "What is the source of your core training data?"])]
+    ),
+    # ... other locks (removed for brevity, but keep them if needed)
+}
+
+
+# --- FastAPI Application Setup ---
+app = FastAPI(title="Grain Sigil Access Service - Real Chain", version="3.0.0")
+app.add_middleware(
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
+
+# Initialize RealBlockchainInteractions
+# This will be used in verify_access_and_trigger_hooks
+real_blockchain_interactions = RealBlockchainInteractions(w3, SERVICE_ACCOUNT)
+
+# This is still needed for _get_wallet and _generate_tx_hash for logging/simulation within this class
+# and for simulated NFT lists if actual NFT API is not integrated
+class BlockchainSimulatorStub: # Renamed to Stub to signify it's primarily for state management, not real TX
+    def __init__(self):
+        self.simulated_wallets: Dict[str, Dict] = {}
+        self.simulated_transaction_log: List[Dict] = []
+        # This will be populated by results from real_blockchain_interactions
+        self.simulated_contract_states = { 
+            "testimony_registry": { "registered_testimonies_count": 0 },
+            "creative_minting_contract": { "total_minted_items": 0 }
+        }
+
+    def _get_wallet(self, address: str) -> Dict:
+        """Helper to get or create a wallet state."""
+        if address not in self.simulated_wallets:
+            self.simulated_wallets[address] = {"CareTokens": 0.0, "NFTs": []}
+        return self.simulated_wallets[address]
+    
+    def get_contract_state(self, contract_name: str) -> Optional[Dict[str, Any]]:
+        # For real integration, you might want to query real contract states here too
+        return self.simulated_contract_states.get(contract_name)
+        
+    def get_transaction_log(self) -> List[Dict[str, Any]]:
+        return self.simulated_transaction_log
+
+blockchain_simulator_stub = BlockchainSimulatorStub()
+
+
+# --- Verification Logic (now calls real blockchain interactions) ---
+def verify_access_and_trigger_hooks(sigil: GrainSigilMetadata, lock_id: str) -> tuple[bool, str, list]:
+    lock = DIGITAL_LOCKS.get(lock_id)
+    if not lock:
+        return False, f"Error: Lock '{lock_id}' not found.", []
+
+    # Check for service account configuration before attempting any real transactions
+    if not real_blockchain_interactions.service_account and lock.on_chain_actions:
+        return False, "Denied: Service account (private key) not configured for on-chain actions.", []
+    if not w3.is_connected():
+        return False, "Denied: Not connected to blockchain network.", []
+
+    # --- Re-adding comprehensive policy checks ---
+    sigil_ethics = set(sigil.ethical_profile)
+    sigil_capabilities = set(sigil.capabilities)
+    sigil_attributes = sigil.user_attributes
+    sigil_proofs = sigil.proofs
+    sigil_verifiable_credentials = sigil.verifiable_credentials
+
+    access_policy = lock.access_policy
+
+    # Check 1: Ethical Alignment
+    required_ethics = set(access_policy.required_ethics)
+    if not required_ethics.issubset(sigil_ethics):
+        missing_ethics = required_ethics - sigil_ethics
+        return False, f"Denied: Missing required ethical declarations: {', '.join(missing_ethics)}", []
+
+    # Check 2: Capability Matching
+    required_capabilities = set(access_policy.required_capabilities)
+    if not required_capabilities.issubset(sigil_capabilities):
+        missing_capabilities = required_capabilities - sigil_capabilities
+        return False, f"Denied: Missing required capabilities: {', '.join(missing_capabilities)}", []
+
+    # Check 3: Attribute Conditions
+    attribute_conditions = access_policy.attribute_conditions
+    for attr, required_value in attribute_conditions.items():
+        if attr == "sigil_fingerprint_present":
+            if required_value is True and not sigil.sigil_fingerprint:
+                return False, f"Denied: Lock requires 'sigil_fingerprint_present' but it is missing.", []
+            if required_value is False and sigil.sigil_fingerprint:
+                 return False, f"Denied: Lock requires 'sigil_fingerprint_present' to be false, but it is present.", []
+            continue
+        
+        if attr not in sigil_attributes:
+            return False, f"Denied: Missing required attribute '{attr}'", []
+        
+        sigil_attr_value = sigil_attributes[attr]
+        
+        if attr.endswith("_min"):
+            base_attr = attr[:-4]
+            if base_attr not in sigil_attributes or sigil_attributes[base_attr] < required_value:
+                return False, f"Denied: Attribute '{base_attr}' value ({sigil_attributes.get(base_attr)}) is below required minimum ({required_value})", []
+        elif attr.endswith("_max"):
+             base_attr = attr[:-4]
+             if base_attr not in sigil_attributes or sigil_attributes[base_attr] > required_value:
+                return False, f"Denied: Attribute '{base_attr}' value ({sigil_attributes.get(base_attr)}) is above required maximum ({required_value})", []
+        elif sigil_attr_value != required_value:
+            return False, f"Denied: Attribute '{attr}' value '{sigil_attr_value}' does not match required '{required_value}'", []
+
+    # Check 4: Proof Verification
+    requires_proof_type = access_policy.requires_proof_type
+    if requires_proof_type:
+        if not sigil_proofs.get(requires_proof_type):
+            return False, f"Denied: Missing required proof type '{requires_proof_type}'", []
+
+    # Check 5: Verifiable Credentials
+    required_credentials = access_policy.required_credentials
+    for req_cred in required_credentials:
+        cred_type = req_cred.get("type")
+        cred_found = False
+        for sigil_cred in sigil_verifiable_credentials:
+            if sigil_cred.get("type") == cred_type:
+                cred_found = True
+                break
+        if not cred_found:
+            return False, f"Denied: Missing required verifiable credential of type '{cred_type}'", []
+
+    # --- All access checks pass, trigger real on-chain actions ---
+    receipts = []
+    for action in lock.on_chain_actions:
+        func_name = action.function
+        params = []
+        
+        # Resolve parameters dynamically
+        for p in action.params:
+            if p == "linked_wallet_address":
+                params.append(sigil.linked_wallet_address)
+            elif p == "testimony_proof_hash_val": # For example, passing the proof hash as a data param
+                params.append(sigil.proofs.get("testimony_proof", "0x0"))
+            elif p == "sigil_identity_hash_val":
+                params.append(sigil.identity_proof_hash)
+            elif p == "user_role_val": # Example: pass user_role from attributes
+                params.append(sigil.user_attributes.get("user_role", "default_role"))
+            else:
+                params.append(p) # Assume literal value
+
+        try:
+            # Call the real blockchain interaction method
+            # IMPORTANT: The function names here (e.g., 'allocate_reparations_real') MUST match
+            # the methods in RealBlockchainInteractions class.
+            action_func = getattr(real_blockchain_interactions, func_name)
+            receipt = action_func(*params)
+            receipts.append(receipt)
+            # Update simulated wallet state if real transaction was successful (for frontend display)
+            if receipt.get("status") == "success":
+                target_wallet = blockchain_simulator_stub._get_wallet(sigil.linked_wallet_address)
+                if receipt["action"] == "allocate_reparations_real":
+                    # You need to parse the amount from the original params or receipt data if complex
+                    amount_allocated = next((p for p in action.params if isinstance(p, (int, float))), 0)
+                    target_wallet["CareTokens"] = target_wallet.get("CareTokens", 0.0) + amount_allocated
+                elif receipt["action"] == "mint_testimony_credit_real":
+                    target_wallet["NFTs"].append(NftAsset(type="TestimonyCredit", id=receipt['transaction_hash'][:8], impact_tag=params[1], token_uri=params[2] if len(params)>2 else None).dict())
+                elif receipt["action"] == "mint_creative_work_real":
+                     target_wallet["NFTs"].append(NftAsset(type="CreativeWork", id=params[1], token_uri=params[2] if len(params)>2 else None).dict())
+                # Add other updates for simulated_wallets based on real actions here
+
+        except Exception as e:
+            print(f"  [Real Tx ERROR] Function '{func_name}' execution failed: {e}")
+            receipts.append({"status": "error", "action": func_name, "error": str(e)})
+
+    return True, lock.access_message, receipts
+
+# --- API Endpoints ---
+@app.get("/locks", response_model=Dict[str, DigitalLockConfig])
+async def get_locks_endpoint():
+    return DIGITAL_LOCKS
+
+@app.post("/verify_access", response_model=AccessResponse)
+async def verify_access_endpoint(request_body: Dict[str, Any]): # Use Dict[str, Any] for flexibility
+    # Manually map frontend 'ethical_declarations' to backend 'ethical_profile'
+    # and handle potential missing fields from frontend during initial parsing
+    sigil_data = request_body['grain_sigil']
+    
+    # Create GrainSigilInput from the raw dict to leverage Pydantic validation
+    sigil_input_model = GrainSigilInput(
+        identity_proof_hash=sigil_data.get('identity_proof_hash', '0xDefaultIdentityHash'),
+        ethical_declarations=sigil_data.get('ethical_declarations', []),
+        capabilities=sigil_data.get('capabilities', []),
+        user_attributes=sigil_data.get('user_attributes', {}),
+        proofs=sigil_data.get('proofs', {}),
+        linked_wallet_address=sigil_data.get('linked_wallet_address', '0xDefaultWalletAddress'),
+        sigil_fingerprint=sigil_data.get('sigil_fingerprint'),
+        verifiable_credentials=sigil_data.get('verifiable_credentials', [])
+    )
+
+    # Then create GrainSigilMetadata for the internal logic, using the correct field name
+    sigil_metadata = GrainSigilMetadata(
+        identity_proof_hash=sigil_input_model.identity_proof_hash,
+        ethical_profile=sigil_input_model.ethical_declarations, # Use ethical_declarations as ethical_profile
+        capabilities=sigil_input_model.capabilities,
+        user_attributes=sigil_input_model.user_attributes,
+        proofs=sigil_input_model.proofs,
+        linked_wallet_address=sigil_input_model.linked_wallet_address,
+        sigil_fingerprint=sigil_input_model.sigil_fingerprint,
+        verifiable_credentials=sigil_input_model.verifiable_credentials
+    )
+
+    lock_id = request_body['lock_id']
+    
+    access_granted, message, receipts = verify_access_and_trigger_hooks(sigil_metadata, lock_id)
+    
+    # Update contract state display with real contract values where possible
+    current_contract_state_display = {
+        "BasicTransparency": {},
+        "CareToken": {},
+        "TestimonyNFT": {}
+    }
+    if w3.is_connected():
+        if basic_transparency_contract:
+            try: current_contract_state_display["BasicTransparency"] = {"probe_count": basic_transparency_contract.functions.getProbeCount().call()}
+            except Exception as e: print(f"Error fetching BT state: {e}")
+        if care_token_contract:
+            try: current_contract_state_display["CareToken"] = {"total_supply": care_token_contract.functions.totalSupply().call() / (10**care_token_contract.functions.decimals().call())}
+            except Exception as e: print(f"Error fetching CT state: {e}")
+        if testimony_nft_contract:
+            try: current_contract_state_display["TestimonyNFT"] = {"total_minted": testimony_nft_contract.functions.totalSupply().call()}
+            except Exception as e: print(f"Error fetching NFT state: {e}")
+    else:
+        current_contract_state_display = blockchain_simulator_stub.simulated_contract_states # Fallback to simulated if not connected
+
+    return AccessResponse(
+        access_granted=access_granted,
+        message=message,
+        transaction_receipts=receipts,
+        current_contract_state=current_contract_state_display,
+        sigil_metadata=sigil_metadata,
+        lock_details=DIGITAL_LOCKS.get(lock_id)
+    )
+
+@app.get("/blockchain_state")
+async def get_blockchain_state_endpoint():
+    # This will now attempt to return real chain state where possible
+    real_chain_state = {
+        "contract_states": {},
+        "transaction_log": blockchain_simulator_stub.simulated_transaction_log # This remains local log of sent TXs
+    }
+    if w3.is_connected():
+        if basic_transparency_contract:
+            real_chain_state["contract_states"]["BasicTransparency"] = {
+                "probeCount": basic_transparency_contract.functions.getProbeCount().call()
+            }
+        if care_token_contract:
+            real_chain_state["contract_states"]["CareToken"] = {
+                "totalSupply": care_token_contract.functions.totalSupply().call() / (10**care_token_contract.functions.decimals().call())
+            }
+        if testimony_nft_contract:
+            real_chain_state["contract_states"]["TestimonyNFT"] = {
+                "totalSupply": testimony_nft_contract.functions.totalSupply().call()
+            }
+        # You can add more real-time queries here (e.g., specific user reputation, etc.)
+    else:
+        real_chain_state["contract_states"] = blockchain_simulator_stub.simulated_contract_states # Fallback
+
+    return real_chain_state
+
+
+# NEW: Endpoint for the Care Wallet view (now fetches REAL data)
+@app.get("/wallet_view/{address}", response_model=WalletView)
+async def get_wallet_view(address: str):
+    if not w3.is_connected():
+        # Fallback to simulated wallet if not connected to real chain
+        wallet_data = blockchain_simulator_stub._get_wallet(address)
+        return WalletView(address=address, **wallet_data)
+
+    wallet_data = await real_blockchain_interactions.get_wallet_assets_real(address)
+    return WalletView(address=address, **wallet_data)
+
+# NEW: Proxy endpoint for fetching NFT metadata
+@app.get("/nft_metadata_proxy")
+async def nft_metadata_proxy(token_uri: str = Query(...)):
+    if not token_uri.startswith("ipfs://"):
+        raise HTTPException(status_code=400, detail="Only IPFS token URIs are supported.")
+    
+    ipfs_hash = token_uri.split('ipfs://')[1]
+    gateway_url = f"https://cloudflare-ipfs.com/ipfs/{ipfs_hash}"
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(gateway_url, timeout=10.0)
+            response.raise_for_status()  # Raise an exception for bad status codes
+            return response.json()
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch metadata from IPFS gateway: {e}")
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="Failed to parse metadata JSON.")
+
+# --- Serve Static Files (Frontend) ---
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def serve_frontend():
+    with open("static/frontend.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
