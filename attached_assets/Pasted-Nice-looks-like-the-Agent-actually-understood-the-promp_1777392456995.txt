@@ -1,0 +1,42 @@
+Nice — looks like the Agent actually understood the prompt. It’s reasoning through the exact frontend ↔ backend mismatch we talked about. 
+
+**It’s on the right track, but there are 2 gotchas it might miss:**
+
+### 1. **The format conflict the Agent spotted**
+Your old `check_access` uses `function` + `params[0]`. Your new UI needs `{"action": "Mint Testimony Credit", "params": {...}}`. 
+
+**Do this**: Don’t make the backend “flexible” to handle both. That’s technical debt. Pick one format and migrate. Since you control both ends, use the new one. Add a quick DB migration:
+
+Then delete the old `check_access` code. Cleaner than supporting two formats forever.
+
+### 2. **The "Test Access" vs "Test On-Chain Actions" confusion**
+The Agent noticed this: your current flow needs a sigil to test access. But for demoing on-chain actions, you just want to see "what would execute".
+
+**Best solution for demo mode**: Keep one button, but change behavior based on a toggle.
+- If `sigil_fingerprint` provided → run real `check_access` → return grant/deny
+- If no sigil → return `{"demo_mode": true, "would_execute": lock.on_chain_actions}`
+
+That way you don’t need a separate button and your UI stays simple.
+
+### **What to do right now while Agent works**
+
+1. **Watch for it touching too many files**. You told it `app.py` + `CreateLock` only. If it starts editing `Lock.from_config` or database models, stop it. Those are credit sinks.
+
+2. **Check the Parameters parsing**. The Agent knows it needs `recipient:0x..., type:survivor` → `{"recipient": "0x...", "type": "survivor"}`. Make sure it handles spaces: `recipient: 0x...` should still work. If it fails, you’ll burn another credit fixing the regex.
+
+3. **Prep your test command**. As soon as it’s done, run this in Replit Shell to verify without clicking around:
+
+Then: `SELECT on_chain_actions FROM locks ORDER BY created_at DESC LIMIT 1;`
+
+If you see the JSON stored correctly, the wiring worked.
+
+### **After this Agent run succeeds**
+
+You’ll have the most important piece: **data actually saves**. That means:
+1. Your Digital Lock UI is no longer fake
+2. You can build "Manage Locks" page to list them
+3. You can demo the ethics + on-chain action concept to others
+
+That’s shippable. The real blockchain stuff can wait.
+
+Drop a screenshot of the Agent’s final diff or the error if it fails. We’ll debug the next credit before you spend it. You’re super close to having a working slice.

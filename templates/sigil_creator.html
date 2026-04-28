@@ -15,7 +15,7 @@
                 <i class="fas fa-shield-alt me-2"></i>
                 Grain Sigil Network
             </a>
-            <div class="navbar-nav ms-auto">
+            <div class="navbar-nav ms-auto d-flex align-items-center gap-2">
                 <a class="nav-link" href="/">
                     <i class="fas fa-home me-1"></i>Dashboard
                 </a>
@@ -25,6 +25,18 @@
                 <a class="nav-link" href="/wallet-view">
                     <i class="fas fa-wallet me-1"></i>Wallet View
                 </a>
+                {% if current_user.is_authenticated %}
+                <div class="d-flex align-items-center ms-2 gap-2">
+                    {% if current_user.profile_image_url %}
+                    <img src="{{ current_user.profile_image_url }}" alt="avatar"
+                         style="width:32px;height:32px;border-radius:50%;object-fit:cover;">
+                    {% endif %}
+                    <span class="text-muted small">{{ current_user.display_name() }}</span>
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('replit_auth.logout') }}">
+                        <i class="fas fa-sign-out-alt me-1"></i>Log out
+                    </a>
+                </div>
+                {% endif %}
             </div>
         </div>
     </nav>

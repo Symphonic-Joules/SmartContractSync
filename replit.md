@@ -94,7 +94,25 @@ The Grain Sigil Autonomy Network is a decentralized identity and access control 
 - **Mainnet Migration**: Production deployment to Ethereum mainnet
 - **Contract Verification**: Public source code verification
 
+## Authentication
+
+Replit Auth is integrated via `replit_auth.py` using OpenID Connect (flask-dance + flask-login).
+
+- `User` and `OAuth` models live in `database_models.py` (tables: `users`, `flask_dance_oauth`)
+- Use `@require_login` decorator on any route that needs authentication
+- `current_user` (flask-login) is available in all templates
+- Login flow: `/auth/login` → OAuth → callback → save user → redirect
+- Logout: `/auth/logout` (clears session + Replit OIDC end-session)
+- Protected routes: `/sigil-creator`, `/access-control`, `/wallet-view`
+- Home (`/`) shows a landing page for logged-out users and the dashboard for logged-in users
+
 ## Changelog
+- April 28, 2026: Added Replit Auth
+  - Integrated flask-dance + flask-login via OpenID Connect
+  - User and OAuth models added to database
+  - Protected sigil-creator, access-control, wallet-view routes
+  - Landing page for logged-out users; dashboard for logged-in users
+  - Avatar, display name, and logout button in all navbars
 - June 30, 2025: Initial setup and complete implementation
   - Fixed web3.py compatibility issues for modern library versions
   - Implemented full Flask application with blockchain integration

@@ -1,33 +1,45 @@
 import logging
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, request, jsonify, render_template, session
+from flask_login import current_user
 from models import GrainSigilMetadata, AccessPolicy, DigitalLockConfig, OnChainAction
 from blockchain_service import blockchain_service
-from app import db
+from app import app, db
 from database_models import Sigil, Lock, AccessLog
+from replit_auth import make_replit_blueprint, require_login
 
 logger = logging.getLogger(__name__)
+
+app.register_blueprint(make_replit_blueprint(), url_prefix="/auth")
 
 main_bp = Blueprint('main', __name__)
 
 
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+
+
 @main_bp.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', current_user=current_user)
 
 
 @main_bp.route('/sigil-creator')
+@require_login
 def sigil_creator():
-    return render_template('sigil_creator.html')
+    return render_template('sigil_creator.html', current_user=current_user)
 
 
 @main_bp.route('/access-control')
+@require_login
 def access_control():
-    return render_template('access_control.html')
+    return render_template('access_control.html', current_user=current_user)
 
 
 @main_bp.route('/wallet-view')
+@require_login
 def wallet_view():
-    return render_template('wallet_view.html')
+    return render_template('wallet_view.html', current_user=current_user)
 
 
 @main_bp.route('/api/create-sigil', methods=['POST'])
@@ -83,24 +95,22 @@ def create_lock():
             required_credentials=access_policy_data.get('required_credentials', [])
         )
 
-        on_chain_actions = []
-        for action_data in data.get('on_chain_actions', []):
-            on_chain_actions.append(OnChainAction(
-                function=action_data['function'],
-                params=action_data['params']
-            ))
+        raw_on_chain_actions = data.get('on_chain_actions', [])
 
         lock_config = DigitalLockConfig(
             type=data.get('type', 'access_control'),
             controls=data.get('controls', ''),
             access_policy=access_policy,
             access_message=data.get('access_message', ''),
-            on_chain_actions=on_chain_actions
+            on_chain_actions=[]
         )
 
-        lock_id = blockchain_service.generate_sigil_fingerprint(lock_config.to_dict())
+        config_dict = lock_config.to_dict()
+        config_dict['on_chain_actions'] = raw_on_chain_actions
 
-        db_lock = Lock.from_config(lock_config.to_dict(), lock_id)
+        lock_id = blockchain_service.generate_sigil_fingerprint(config_dict)
+
+        db_lock = Lock.from_config(config_dict, lock_id)
         db.session.add(db_lock)
         db.session.commit()
 
@@ -237,6 +247,46 @@ def list_locks():
         return jsonify({lock.lock_id: lock.to_dict() for lock in locks})
     except Exception as e:
         logger.error(f"Error listing locks: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@main_bp.route('/api/locks/<lock_id>/test', methods=['POST'])
+def test_lock_actions(lock_id):
+    try:
+        lock = Lock.query.filter_by(lock_id=lock_id).first()
+        if not lock:
+            return jsonify({"status": "error", "message": "Lock not found"}), 404
+
+        actions = lock.on_chain_actions or []
+
+        action_messages = []
+        for action_data in actions:
+            action_name = action_data.get('action', action_data.get('function', 'unknown action'))
+            name_lower = action_name.lower()
+            if 'testimony' in name_lower:
+                action_messages.append(f"mint testimony credit")
+            elif 'reparation' in name_lower:
+                action_messages.append(f"allocate reparations")
+            elif 'creative' in name_lower:
+                action_messages.append(f"mint creative work NFT")
+            elif 'reputation' in name_lower:
+                action_messages.append(f"update reputation score")
+            else:
+                action_messages.append(f"execute: {action_name}")
+
+        if action_messages:
+            message = "In production, this would " + " and ".join(action_messages)
+        else:
+            message = "No on-chain actions configured for this lock"
+
+        return jsonify({
+            "status": "demo_mode",
+            "would_execute": actions,
+            "message": message
+        })
+
+    except Exception as e:
+        logger.error(f"Error testing lock actions: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
